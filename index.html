@@ -1,0 +1,314 @@
+<html><head><base href="https://drm-iptv-player.example.com/"><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>DRM IPTV Player</title><style>
+    body {
+        font-family: 'Roboto', sans-serif;
+        background-color: #0f0f0f;
+        color: #ffffff;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+    }
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    h1 {
+        text-align: center;
+        color: #00ffff;
+        font-size: 2.5rem;
+        margin-bottom: 30px;
+        text-shadow: 0 0 10px rgba(0,255,255,0.5);
+    }
+    #playerContainer {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background-color: #000;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 20px rgba(0,255,255,0.1), 0 6px 6px rgba(0,255,255,0.1);
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    #videoPlayer {
+        width: 100%;
+        height: 100%;
+    }
+    #controls {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 30px;
+    }
+    #controls button {
+        background-color: #00ffff;
+        color: #000;
+        border: none;
+        padding: 12px 24px;
+        margin: 0 10px;
+        border-radius: 25px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        box-shadow: 0 4px 6px rgba(0,255,255,0.1);
+    }
+    #controls button:hover {
+        background-color: #00cccc;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 8px rgba(0,255,255,0.2);
+    }
+    #channelList {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 20px;
+        padding: 20px 0;
+    }
+    .channel-item {
+        background-color: #1f1f1f;
+        border-radius: 10px;
+        overflow: hidden;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        cursor: pointer;
+        position: relative;
+    }
+    .channel-item:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,255,255,0.2);
+    }
+    .channel-logo {
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+    }
+    .channel-info {
+        padding: 15px;
+    }
+    .channel-name {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .channel-group {
+        font-size: 0.8rem;
+        color: #999;
+    }
+    .play-button {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 255, 255, 0.8);
+        border: none;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        opacity: 0;
+    }
+    .channel-item:hover .play-button {
+        opacity: 1;
+    }
+    .play-button:hover {
+        background-color: rgba(0, 204, 204, 0.9);
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+    .play-button::before {
+        content: '';
+        width: 0;
+        height: 0;
+        border-top: 15px solid transparent;
+        border-bottom: 15px solid transparent;
+        border-left: 25px solid #000;
+        margin-left: 5px;
+    }
+    #errorMessage {
+        color: #ff3860;
+        text-align: center;
+        margin-bottom: 20px;
+        font-weight: bold;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in {
+        animation: fadeIn 0.5s ease-out forwards;
+    }
+    @keyframes pulse {
+        0% { transform: translate(-50%, -50%) scale(1); }
+        50% { transform: translate(-50%, -50%) scale(1.1); }
+        100% { transform: translate(-50%, -50%) scale(1); }
+    }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>DRM IPTV Player</h1>
+    <div id="errorMessage"></div>
+    <div id="playerContainer">
+        <video id="videoPlayer" controls></video>
+    </div>
+    <div id="controls">
+        <button id="prevChannel">Previous Channel</button>
+        <button id="playPause">Play/Pause</button>
+        <button id="nextChannel">Next Channel</button>
+    </div>
+    <div id="channelList"></div>
+</div>
+
+<script>
+const videoPlayer = document.getElementById('videoPlayer');
+const channelList = document.getElementById('channelList');
+const playPauseButton = document.getElementById('playPause');
+const prevChannelButton = document.getElementById('prevChannel');
+const nextChannelButton = document.getElementById('nextChannel');
+const errorMessageElement = document.getElementById('errorMessage');
+
+let currentChannelIndex = 0;
+let shakaPlayer;
+
+const channels = [
+    {
+        name: "TV 5",
+        group: "Local Channel",
+        logo: "https://upload.wikimedia.org/wikipedia/commons/4/4f/TV5_%28Philippines%29_logo.svg",
+        url: "https://qp-pldt-live-grp-02-prod.akamaized.net/out/u/tv5_hd.mpd",
+        drmType: "clearkey",
+        drmKey: "2615129ef2c846a9bbd43a641c7303ef:07c7f996b1734ea288641a68e1cfdc4d"
+    },
+    {
+        name: "ESPN PREMIUM",
+        group: "ESPN Sports",
+        logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/ESPN_Premium_logo.svg/1200px-ESPN_Premium_logo.svg.png",
+        url: "https://cdn.cvattv.com.ar//live/c7eds/Fox_Sports_Premiun_HD/SA_Live_dash_enc/Fox_Sports_Premiun_HD.mpd",
+        drmType: "clearkey",
+        drmKey: "4c230dbc7f6a4bfa6ad0aa73ff792374:4186a7c2a15f590a9399886feaec4257"
+    }
+];
+
+function initApp() {
+    displayChannels();
+    setupEventListeners();
+    initializePlayer();
+}
+
+function initializePlayer() {
+    shaka.polyfill.installAll();
+    if (shaka.Player.isBrowserSupported()) {
+        shakaPlayer = new shaka.Player(videoPlayer);
+        shakaPlayer.configure({
+            drm: {
+                servers: {
+                    'com.widevine.alpha': 'https://widevine-license.example.com/proxy',
+                    'com.microsoft.playready': 'https://playready-license.example.com/proxy'
+                }
+            }
+        });
+        shakaPlayer.addEventListener('error', onErrorEvent);
+    } else {
+        console.error('Browser not supported');
+        showError('Browser not supported for video playback');
+    }
+}
+
+function onErrorEvent(event) {
+    console.error('Error code', event.detail.code, 'object', event.detail);
+    showError(`Playback Error: ${event.detail.message}`);
+}
+
+function displayChannels() {
+    channelList.innerHTML = '';
+    channels.forEach((channel, index) => {
+        const channelElement = document.createElement('div');
+        channelElement.className = 'channel-item fade-in';
+        channelElement.innerHTML = `
+            <img src="${channel.logo}" alt="${channel.name} logo" class="channel-logo">
+            <div class="channel-info">
+                <div class="channel-name">${channel.name}</div>
+                <div class="channel-group">${channel.group}</div>
+            </div>
+            <button class="play-button" data-index="${index}"></button>
+        `;
+        channelList.appendChild(channelElement);
+    });
+}
+
+function setupEventListeners() {
+    playPauseButton.addEventListener('click', togglePlayPause);
+    prevChannelButton.addEventListener('click', playPreviousChannel);
+    nextChannelButton.addEventListener('click', playNextChannel);
+    
+    channelList.addEventListener('click', (event) => {
+        const playButton = event.target.closest('.play-button');
+        if (playButton) {
+            const index = parseInt(playButton.getAttribute('data-index'));
+            playChannel(index);
+            animatePlayButton(playButton);
+        }
+    });
+}
+
+function animatePlayButton(button) {
+    button.style.animation = 'pulse 0.5s ease-in-out';
+    setTimeout(() => {
+        button.style.animation = '';
+    }, 500);
+}
+
+async function playChannel(index) {
+    currentChannelIndex = index;
+    const channel = channels[index];
+    const url = channel.url;
+
+    try {
+        await shakaPlayer.load(url);
+        if (channel.drmType === 'clearkey') {
+            const [keyId, key] = channel.drmKey.split(':');
+            shakaPlayer.configure({
+                drm: {
+                    clearKeys: {
+                        [keyId]: key
+                    }
+                }
+            });
+        }
+
+        videoPlayer.play();
+        console.log(`Now playing: ${channel.name}`);
+        errorMessageElement.textContent = '';
+    } catch (error) {
+        console.error('Error playing channel:', error);
+        showError(`Error playing ${channel.name}: ${error.message}`);
+    }
+}
+
+function togglePlayPause() {
+    if (videoPlayer.paused) {
+        videoPlayer.play();
+    } else {
+        videoPlayer.pause();
+    }
+}
+
+function playPreviousChannel() {
+    currentChannelIndex = (currentChannelIndex - 1 + channels.length) % channels.length;
+    playChannel(currentChannelIndex);
+}
+
+function playNextChannel() {
+    currentChannelIndex = (currentChannelIndex + 1) % channels.length;
+    playChannel(currentChannelIndex);
+}
+
+function showError(message) {
+    console.error(message);
+    errorMessageElement.textContent = message;
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
+</script>
+</body></html>
