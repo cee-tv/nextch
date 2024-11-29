@@ -1,7 +1,7 @@
-<html><head><base href="https://drm-iptv-player.example.com/"><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>DRM IPTV Player</title><style>
+<html><head><base href="https://advanced-iptv-player.example.com/"><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Advanced IPTV Player</title><style>
     body {
         font-family: 'Roboto', sans-serif;
-        background-color: #0f0f0f;
+        background-color: #121212;
         color: #ffffff;
         margin: 0;
         padding: 0;
@@ -14,10 +14,9 @@
     }
     h1 {
         text-align: center;
-        color: #00ffff;
+        color: #00a0ff;
         font-size: 2.5rem;
         margin-bottom: 30px;
-        text-shadow: 0 0 10px rgba(0,255,255,0.5);
     }
     #playerContainer {
         position: relative;
@@ -25,7 +24,7 @@
         aspect-ratio: 16 / 9;
         background-color: #000;
         margin-bottom: 30px;
-        box-shadow: 0 10px 20px rgba(0,255,255,0.1), 0 6px 6px rgba(0,255,255,0.1);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23);
         border-radius: 10px;
         overflow: hidden;
     }
@@ -38,9 +37,9 @@
         justify-content: center;
         margin-bottom: 30px;
     }
-    #controls button {
-        background-color: #00ffff;
-        color: #000;
+    #controls button, #qualitySelector {
+        background-color: #00a0ff;
+        color: white;
         border: none;
         padding: 12px 24px;
         margin: 0 10px;
@@ -49,12 +48,12 @@
         cursor: pointer;
         transition: all 0.3s ease;
         text-transform: uppercase;
-        box-shadow: 0 4px 6px rgba(0,255,255,0.1);
+        box-shadow: 0 4px 6px rgba(0,160,255,0.1);
     }
-    #controls button:hover {
-        background-color: #00cccc;
+    #controls button:hover, #qualitySelector:hover {
+        background-color: #0077ff;
         transform: translateY(-2px);
-        box-shadow: 0 6px 8px rgba(0,255,255,0.2);
+        box-shadow: 0 6px 8px rgba(0,160,255,0.2);
     }
     #channelList {
         display: grid;
@@ -72,7 +71,7 @@
     }
     .channel-item:hover {
         transform: translateY(-5px);
-        box-shadow: 0 10px 20px rgba(0,255,255,0.2);
+        box-shadow: 0 10px 20px rgba(0,160,255,0.2);
     }
     .channel-logo {
         width: 100%;
@@ -95,7 +94,7 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        background-color: rgba(0, 255, 255, 0.8);
+        background-color: rgba(0, 160, 255, 0.8);
         border: none;
         border-radius: 50%;
         width: 60px;
@@ -111,7 +110,7 @@
         opacity: 1;
     }
     .play-button:hover {
-        background-color: rgba(0, 204, 204, 0.9);
+        background-color: rgba(0, 119, 255, 0.9);
         transform: translate(-50%, -50%) scale(1.1);
     }
     .play-button::before {
@@ -120,7 +119,7 @@
         height: 0;
         border-top: 15px solid transparent;
         border-bottom: 15px solid transparent;
-        border-left: 25px solid #000;
+        border-left: 25px solid white;
         margin-left: 5px;
     }
     #errorMessage {
@@ -141,21 +140,43 @@
         50% { transform: translate(-50%, -50%) scale(1.1); }
         100% { transform: translate(-50%, -50%) scale(1); }
     }
+    #liveIndicator {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background-color: #ff0000;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-weight: bold;
+        text-transform: uppercase;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    #liveIndicator.show {
+        opacity: 1;
+    }
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.min.js"></script>
 </head>
 <body>
 <div class="container">
-    <h1>DRM IPTV Player</h1>
+    <h1>Advanced IPTV Player</h1>
     <div id="errorMessage"></div>
     <div id="playerContainer">
         <video id="videoPlayer" controls></video>
+        <div id="liveIndicator">VIVO</div>
     </div>
     <div id="controls">
         <button id="prevChannel">Previous Channel</button>
         <button id="playPause">Play/Pause</button>
         <button id="nextChannel">Next Channel</button>
+        <select id="qualitySelector">
+            <option value="">Auto</option>
+        </select>
     </div>
     <div id="channelList"></div>
 </div>
@@ -167,23 +188,20 @@ const playPauseButton = document.getElementById('playPause');
 const prevChannelButton = document.getElementById('prevChannel');
 const nextChannelButton = document.getElementById('nextChannel');
 const errorMessageElement = document.getElementById('errorMessage');
+const qualitySelector = document.getElementById('qualitySelector');
+const liveIndicator = document.getElementById('liveIndicator');
 
 let currentChannelIndex = 0;
+let hlsPlayer;
+let dashPlayer;
 let shakaPlayer;
 
-const channels = [
-    {
-        name: "TV 5",
-        group: "Local Channel",
-        logo: "https://upload.wikimedia.org/wikipedia/commons/4/4f/TV5_%28Philippines%29_logo.svg",
-        url: "https://qp-pldt-live-grp-02-prod.akamaized.net/out/u/tv5_hd.mpd",
-        drmType: "clearkey",
-        drmKey: "2615129ef2c846a9bbd43a641c7303ef:07c7f996b1734ea288641a68e1cfdc4d"
-    },  
-        {
+const channels = [  
+      {
                 name: "TV 5",
                 logo: "https://upload.wikimedia.org/wikipedia/commons/4/4f/TV5_%28Philippines%29_logo.svg",
-                drmKey: "2615129ef2c846a9bbd43a641c7303ef:07c7f996b1734ea288641a68e1cfdc4d",
+                drmType: "clearkey",
+drmKey: "2615129ef2c846a9bbd43a641c7303ef:07c7f996b1734ea288641a68e1cfdc4d",
                 url: "https://qp-pldt-live-grp-02-prod.akamaized.net/out/u/tv5_hd.mpd",
                 drmType: "clearkey",
                 group: "LocalChannel"
@@ -941,38 +959,49 @@ const channels = [
                 url: "https://myxnola-abscbn-ono.amagi.tv/index.m3u8",
                 type: "m3u8",
                 group: "MUSIC"
-        },
-        
+        }
+    
 ];
 
 function initApp() {
     displayChannels();
     setupEventListeners();
-    initializePlayer();
+    initializePlayers();
 }
 
-function initializePlayer() {
+function initializePlayers() {
+    if (Hls.isSupported()) {
+        hlsPlayer = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+        });
+    }
+
+    dashPlayer = dashjs.MediaPlayer().create();
+
     shaka.polyfill.installAll();
     if (shaka.Player.isBrowserSupported()) {
         shakaPlayer = new shaka.Player(videoPlayer);
         shakaPlayer.configure({
+            streaming: {
+                bufferingGoal: 30,
+                rebufferingGoal: 15,
+            },
+            manifest: {
+                dash: {
+                    ignoreMinBufferTime: true,
+                },
+            },
             drm: {
                 servers: {
                     'com.widevine.alpha': 'https://widevine-license.example.com/proxy',
-                    'com.microsoft.playready': 'https://playready-license.example.com/proxy'
-                }
-            }
+                    'com.microsoft.playready': 'https://playready-license.example.com/proxy',
+                },
+            },
         });
-        shakaPlayer.addEventListener('error', onErrorEvent);
     } else {
-        console.error('Browser not supported');
-        showError('Browser not supported for video playback');
+        console.error('Browser not supported for Shaka Player');
     }
-}
-
-function onErrorEvent(event) {
-    console.error('Error code', event.detail.code, 'object', event.detail);
-    showError(`Playback Error: ${event.detail.message}`);
 }
 
 function displayChannels() {
@@ -996,6 +1025,9 @@ function setupEventListeners() {
     playPauseButton.addEventListener('click', togglePlayPause);
     prevChannelButton.addEventListener('click', playPreviousChannel);
     nextChannelButton.addEventListener('click', playNextChannel);
+    videoPlayer.addEventListener('error', handleVideoError);
+    videoPlayer.addEventListener('playing', showLiveIndicator);
+    videoPlayer.addEventListener('pause', hideLiveIndicator);
     
     channelList.addEventListener('click', (event) => {
         const playButton = event.target.closest('.play-button');
@@ -1005,6 +1037,8 @@ function setupEventListeners() {
             animatePlayButton(playButton);
         }
     });
+
+    qualitySelector.addEventListener('change', changeQuality);
 }
 
 function animatePlayButton(button) {
@@ -1020,24 +1054,57 @@ async function playChannel(index) {
     const url = channel.url;
 
     try {
-        await shakaPlayer.load(url);
-        if (channel.drmType === 'clearkey') {
-            const [keyId, key] = channel.drmKey.split(':');
-            shakaPlayer.configure({
-                drm: {
-                    clearKeys: {
-                        [keyId]: key
-                    }
-                }
-            });
+        if (url.includes('.m3u8')) {
+            await playHLSChannel(url);
+        } else if (url.includes('.mpd')) {
+            if (channel.drmType === 'clearkey') {
+                await playClearkeyDashChannel(url, channel.drmKey);
+            } else {
+                await playDashChannel(url);
+            }
+        } else {
+            throw new Error('Unsupported video format');
         }
 
         videoPlayer.play();
         console.log(`Now playing: ${channel.name}`);
         errorMessageElement.textContent = '';
+        updateQualityOptions();
     } catch (error) {
         console.error('Error playing channel:', error);
         showError(`Error playing ${channel.name}: ${error.message}`);
+    }
+}
+
+async function playHLSChannel(url) {
+    if (Hls.isSupported()) {
+        hlsPlayer.loadSource(url);
+        hlsPlayer.attachMedia(videoPlayer);
+    } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        videoPlayer.src = url;
+    } else {
+        throw new Error('HLS not supported');
+    }
+}
+
+async function playDashChannel(url) {
+    dashPlayer.initialize(videoPlayer, url, true);
+}
+
+async function playClearkeyDashChannel(url, drmKey) {
+    try {
+        await shakaPlayer.load(url);
+        const [licenseId, licenseKey] = drmKey.split(':');
+        shakaPlayer.configure({
+            drm: {
+                clearKeys: {
+                    [licenseId]: licenseKey
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Shaka player error:', error);
+        throw error;
     }
 }
 
@@ -1059,9 +1126,67 @@ function playNextChannel() {
     playChannel(currentChannelIndex);
 }
 
+function handleVideoError(e) {
+    console.error('Video error:', e);
+    showError(`Video playback error: ${e.message}`);
+}
+
 function showError(message) {
     console.error(message);
     errorMessageElement.textContent = message;
+}
+
+function updateQualityOptions() {
+    qualitySelector.innerHTML = '<option value="">Auto</option>';
+    let qualities;
+    if (hlsPlayer && hlsPlayer.levels) {
+        qualities = hlsPlayer.levels;
+    } else if (dashPlayer && dashPlayer.getBitrateInfoListFor) {
+        qualities = dashPlayer.getBitrateInfoListFor("video");
+    } else if (shakaPlayer && shakaPlayer.getVariantTracks) {
+        qualities = shakaPlayer.getVariantTracks();
+    }
+
+    if (qualities) {
+        qualities.forEach((quality, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = `${quality.height}p`;
+            qualitySelector.appendChild(option);
+        });
+    }
+}
+
+function changeQuality() {
+    const qualityIndex = qualitySelector.value;
+    if (qualityIndex === "") {
+        if (hlsPlayer) {
+            hlsPlayer.currentLevel = -1; // Auto
+        } else if (dashPlayer) {
+            dashPlayer.setAutoSwitchQualityFor("video", true);
+        } else if (shakaPlayer) {
+            shakaPlayer.configure({abr: {enabled: true}});
+        }
+    } else {
+        if (hlsPlayer) {
+            hlsPlayer.currentLevel = parseInt(qualityIndex);
+        } else if (dashPlayer) {
+            dashPlayer.setAutoSwitchQualityFor("video", false);
+            dashPlayer.setQualityFor("video", parseInt(qualityIndex));
+        } else if (shakaPlayer) {
+            shakaPlayer.configure({abr: {enabled: false}});
+            const tracks = shakaPlayer.getVariantTracks();
+            shakaPlayer.selectVariantTrack(tracks[parseInt(qualityIndex)]);
+        }
+    }
+}
+
+function showLiveIndicator() {
+    liveIndicator.classList.add('show');
+}
+
+function hideLiveIndicator() {
+    liveIndicator.classList.remove('show');
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
